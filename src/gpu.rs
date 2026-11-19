@@ -11,17 +11,33 @@ use crate::stage::{MARK_OVER, MARK_UNDER, Stage};
 
 const SHADER: &str = include_str!("shader.wgsl");
 
-struct Pipes {
+/// The format of Rune's isolated layers: a slot that's fading (or otherwise partly
+/// transparent) is drawn into one of these, then composited into the frame.
+const LAYER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// The two pipelines for one target format.
+struct Target {
     format: wgpu::TextureFormat,
-    device: DeviceKey,
     prim: wgpu::RenderPipeline,
     ribbon: wgpu::RenderPipeline,
+}
+
+struct Pipes {
+    device: DeviceKey,
+    /// The frame's format first, then the layers'.
+    targets: Vec<Target>,
     uniforms: wgpu::Buffer,
     bind: wgpu::BindGroup,
     prims: wgpu::Buffer,
     prims_cap: u64,
     verts: wgpu::Buffer,
     verts_cap: u64,
+}
+
+impl Pipes {
+    fn target(&self, format: wgpu::TextureFormat) -> Option<&Target> {
+        self.targets.iter().find(|t| t.format == format)
+    }
 }
 
 pub struct Gfx {
@@ -41,6 +57,45 @@ fn buffer(device: &wgpu::Device, label: &str, size: u64, usage: wgpu::BufferUsag
     device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage: usage | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false })
 }
 
+fn target(device: &wgpu::Device, module: &wgpu::ShaderModule, layout: &wgpu::PipelineLayout, format: wgpu::TextureFormat) -> Target {
+    let target = [Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })];
+    let prim_attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4];
+    let prim = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("pointer prims"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_prim"),
+            compilation_options: Default::default(),
+            buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<Prim>() as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &prim_attrs })],
+        },
+        fragment: Some(wgpu::FragmentState { module, entry_point: Some("fs_prim"), compilation_options: Default::default(), targets: &target }),
+        primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleStrip, ..Default::default() },
+        depth_stencil: None,
+        multisample: Default::default(),
+        multiview_mask: None,
+        cache: None,
+    });
+    let ribbon_attrs = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4];
+    let ribbon = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("pointer ribbons"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_ribbon"),
+            compilation_options: Default::default(),
+            buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<RVert>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &ribbon_attrs })],
+        },
+        fragment: Some(wgpu::FragmentState { module, entry_point: Some("fs_ribbon"), compilation_options: Default::default(), targets: &target }),
+        primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
+        depth_stencil: None,
+        multisample: Default::default(),
+        multiview_mask: None,
+        cache: None,
+    });
+    Target { format, prim, ribbon }
+}
+
 fn pipes(device: &wgpu::Device, key: DeviceKey, format: wgpu::TextureFormat) -> Pipes {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("pointer"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
     let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -53,41 +108,9 @@ fn pipes(device: &wgpu::Device, key: DeviceKey, format: wgpu::TextureFormat) -> 
         }],
     });
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("pointer"), bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
-    let target = [Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })];
-    let prim_attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4];
-    let prim = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("pointer prims"),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState {
-            module: &module,
-            entry_point: Some("vs_prim"),
-            compilation_options: Default::default(),
-            buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<Prim>() as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &prim_attrs })],
-        },
-        fragment: Some(wgpu::FragmentState { module: &module, entry_point: Some("fs_prim"), compilation_options: Default::default(), targets: &target }),
-        primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleStrip, ..Default::default() },
-        depth_stencil: None,
-        multisample: Default::default(),
-        multiview_mask: None,
-        cache: None,
-    });
-    let ribbon_attrs = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4];
-    let ribbon = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("pointer ribbons"),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState {
-            module: &module,
-            entry_point: Some("vs_ribbon"),
-            compilation_options: Default::default(),
-            buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<RVert>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &ribbon_attrs })],
-        },
-        fragment: Some(wgpu::FragmentState { module: &module, entry_point: Some("fs_ribbon"), compilation_options: Default::default(), targets: &target }),
-        primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
-        depth_stencil: None,
-        multisample: Default::default(),
-        multiview_mask: None,
-        cache: None,
-    });
+    // Pipelines for the frame, and for a layer in case Rune puts a slot in one.
+    let mut targets = vec![target(device, &module, &layout, format)];
+    if format != LAYER_FORMAT { targets.push(target(device, &module, &layout, LAYER_FORMAT)); }
     let uniforms = buffer(device, "pointer uniforms", 48, wgpu::BufferUsages::UNIFORM);
     let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("pointer"),
@@ -97,10 +120,8 @@ fn pipes(device: &wgpu::Device, key: DeviceKey, format: wgpu::TextureFormat) -> 
     let prims_cap = 1024 * std::mem::size_of::<Prim>() as u64;
     let verts_cap = 8192 * std::mem::size_of::<RVert>() as u64;
     Pipes {
-        format,
         device: key,
-        prim,
-        ribbon,
+        targets,
         uniforms,
         bind,
         prims: buffer(device, "pointer prims", prims_cap, wgpu::BufferUsages::VERTEX),
@@ -110,18 +131,18 @@ fn pipes(device: &wgpu::Device, key: DeviceKey, format: wgpu::TextureFormat) -> 
     }
 }
 
-fn draw_ops(pass: &mut wgpu::RenderPass<'_>, p: &Pipes, ops: &[Op]) {
+fn draw_ops(pass: &mut wgpu::RenderPass<'_>, p: &Pipes, t: &Target, ops: &[Op]) {
     if ops.is_empty() { return; }
     pass.set_bind_group(0, &p.bind, &[]);
     for op in ops {
         match *op {
             Op::Prims(a, b) => {
-                pass.set_pipeline(&p.prim);
+                pass.set_pipeline(&t.prim);
                 pass.set_vertex_buffer(0, p.prims.slice(..));
                 pass.draw(0..4, a..b);
             }
             Op::Ribbon(a, b) => {
-                pass.set_pipeline(&p.ribbon);
+                pass.set_pipeline(&t.ribbon);
                 pass.set_vertex_buffer(0, p.verts.slice(..));
                 pass.draw(a..b, 0..1);
             }
@@ -144,7 +165,7 @@ impl Compositor<Stage> for Gfx {
         self.animating = stage.wants_frames();
 
         let key = f.device_key();
-        if self.pipes.as_ref().is_none_or(|p| p.format != f.format || p.device != key) {
+        if self.pipes.as_ref().is_none_or(|p| p.device != key || p.target(f.format).is_none()) {
             self.pipes = Some(pipes(f.device, key, f.format));
         }
         let p = self.pipes.as_mut().expect("made above");
@@ -168,16 +189,24 @@ impl Compositor<Stage> for Gfx {
         if vert_bytes > 0 { f.write_buffer(&vbuf, 0, bytemuck::cast_slice(&self.scene.verts)); }
 
         let clear = f.rt.clear_color();
+        let frame_px = f.size;
         f.ui.prepare(f.device, f.queue, &mut f.rt.text.atlas, &f.rt.instances, f.size);
         let p = self.pipes.as_ref().expect("made above");
         let scene = &self.scene;
         f.ui.draw_with(f.encoder, f.target, clear, &mut |pass, site| {
-            if site.format != p.format || site.in_layer { return; }
-            match site.mark {
-                MARK_UNDER => draw_ops(pass, p, &scene.under.ops),
-                MARK_OVER => draw_ops(pass, p, &scene.over.ops),
-                _ => {}
+            let ops = match site.mark {
+                MARK_UNDER => &scene.under.ops,
+                MARK_OVER => &scene.over.ops,
+                _ => return,
+            };
+            let Some(target) = p.target(site.format) else { return };
+            // Inside an isolated layer the target is the layer's texture, whose top-left is
+            // `origin` in the window: shift the frame's mapping onto it (Rune resets the
+            // viewport after the slot).
+            if site.in_layer && (site.origin != [0.0, 0.0] || site.size != [frame_px.0, frame_px.1]) {
+                pass.set_viewport(-site.origin[0], -site.origin[1], frame_px.0 as f32, frame_px.1 as f32, 0.0, 1.0);
             }
+            draw_ops(pass, p, target, ops);
         });
         let cpu_ms = started.elapsed().as_secs_f64() * 1000.0 + f.update_ms;
         f.rt.state.frame_drawn(gap, cpu_ms, self.scene.prims.len(), self.scene.verts.len());

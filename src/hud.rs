@@ -55,7 +55,11 @@ pub fn view(s: &Stage, _: &mut Cx<Stage>) -> El {
     }
     let promo = match s.source { Source::Promo(shot) => Some(shot), _ => None };
     if let Some(shot) = promo && let Some(back) = crate::promo::backdrop(shot, s.time() as f32) { root = root.child(back); }
-    root = root.child(effect(MARK_UNDER).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)));
+    // The effect slots are keyed: the toast, the hotkey card and the readout come and go
+    // between them, and an unkeyed slot whose place among its siblings changes reads as a new
+    // element that fades in. A fading slot is drawn inside an offscreen layer, and the glove
+    // would blink out while it does (or stay out, if the overlay came to rest meanwhile).
+    root = root.child(effect(MARK_UNDER).key("fx-under").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)));
     if let Some(shot) = promo { root = root.child(crate::promo::overlay(shot, s.time() as f32)); }
 
     if let Some((toast, _)) = s.toast.as_ref().filter(|_| promo.is_none()) {
@@ -99,7 +103,7 @@ pub fn view(s: &Stage, _: &mut Cx<Stage>) -> El {
         root = root.child(full().key("perf-wrap").items_end().pt(18.0 * k).pr(18.0 * k).child(readout));
     }
 
-    root = root.child(effect(MARK_OVER).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)));
+    root = root.child(effect(MARK_OVER).key("fx-over").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)));
     root.on_pointer_move(|s: &mut Stage, p| s.pointer_moved(v2(p.x, p.y)))
         .on_drag(|s: &mut Stage, d, _tx| {
             let down = !matches!(d.phase, rune::Phase::Up) && !d.cancelled();

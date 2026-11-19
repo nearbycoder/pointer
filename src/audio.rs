@@ -745,42 +745,58 @@ struct Live {
     frames: AtomicU64,
     epoch: Instant,
     unit: Mutex<Unit>,
+    /// Whether the output runs. Only the control thread changes it; anyone reads it without
+    /// waiting on a start in progress.
+    running: AtomicBool,
+    /// The thread that starts and stops the output, woken when sound is wanted.
+    control: OnceLock<std::thread::Thread>,
 }
 
 struct Unit {
     #[cfg(target_os = "macos")]
     au: *mut std::ffi::c_void,
-    running: bool,
 }
 
 // SAFETY: the unit pointer is only used under the mutex, through thread-safe AudioToolbox calls.
 unsafe impl Send for Unit {}
 
+/// How long the output keeps running after the last sound, or the last time the pointer
+/// moved. A running output sounds a click at once but costs a couple of percent of a core in
+/// the system's audio I/O even while silent; a stopped one costs nothing, and moving the
+/// pointer starts it again (in the background) before the click that usually follows.
+const KEEP_RUNNING_MS: u64 = 5_000;
+
 impl Live {
     fn now_ms(&self) -> u64 {
         self.epoch.elapsed().as_millis() as u64
     }
-    /// Starts the output if it's stopped; called whenever something is about to sound.
+    /// Asks for the output to run. Never waits: starting an output can take a fifth of a
+    /// second (a display's speakers over DisplayPort do), which on the main thread froze the
+    /// pointer on the first click after a quiet spell. The control thread starts it, and what
+    /// was asked for plays as soon as it runs.
     fn wake(&self) {
-        self.asked_at.store(self.now_ms(), Ordering::Relaxed);
-        let mut unit = self.unit.lock().unwrap_or_else(|e| e.into_inner());
-        if !unit.running {
-            #[cfg(target_os = "macos")]
-            // SAFETY: the unit was initialised in `start_live` and lives for the process.
-            unsafe { coreaudio::AudioOutputUnitStart(unit.au); }
-            unit.running = true;
-        }
+        // Never zero, which reads as "never asked".
+        self.asked_at.store(self.now_ms().max(1), Ordering::Relaxed);
+        if !self.running.load(Ordering::Acquire) && let Some(control) = self.control.get() { control.unpark(); }
     }
-    fn stop_if_quiet(&self) {
-        let now = self.now_ms();
-        let last = self.busy_at.load(Ordering::Relaxed).max(self.asked_at.load(Ordering::Relaxed));
-        if now.saturating_sub(last) < 2500 { return; }
-        let mut unit = self.unit.lock().unwrap_or_else(|e| e.into_inner());
-        if unit.running {
-            #[cfg(target_os = "macos")]
-            // SAFETY: as above.
-            unsafe { coreaudio::AudioOutputUnitStop(unit.au); }
-            unit.running = false;
+    /// The control thread: starts the output when it's wanted and stops it after a quiet
+    /// spell, checking again after each change (a sound asked for while it stopped).
+    fn control(&self) -> ! {
+        loop {
+            loop {
+                let last = self.busy_at.load(Ordering::Relaxed).max(self.asked_at.load(Ordering::Relaxed));
+                let want = self.asked_at.load(Ordering::Relaxed) > 0 && self.now_ms().saturating_sub(last) < KEEP_RUNNING_MS;
+                if want == self.running.load(Ordering::Acquire) { break; }
+                let unit = self.unit.lock().unwrap_or_else(|e| e.into_inner());
+                #[cfg(target_os = "macos")]
+                // SAFETY: the unit was initialised in `start_live` and lives for the process.
+                unsafe {
+                    if want { coreaudio::AudioOutputUnitStart(unit.au); } else { coreaudio::AudioOutputUnitStop(unit.au); }
+                }
+                drop(unit);
+                self.running.store(want, Ordering::Release);
+            }
+            std::thread::park_timeout(Duration::from_millis(500));
         }
     }
 }
@@ -794,9 +810,15 @@ impl Engine {
         let on = self.live.enabled.load(Ordering::Relaxed);
         self.synth.set_level(if on { self.level } else { 0.0 });
         if !on { self.synth.voices.clear(); }
-        self.synth.render(out);
         self.live.frames.fetch_add((out.len() / 2) as u64, Ordering::Relaxed);
-        if self.synth.busy() { self.live.busy_at.store(self.live.now_ms(), Ordering::Relaxed); }
+        if !self.synth.busy() {
+            // Nothing is sounding (the output runs a while after the last sound, ready for
+            // the next): silence, without stepping every voice and smoother for each sample.
+            out.fill(0.0);
+            return;
+        }
+        self.synth.render(out);
+        self.live.busy_at.store(self.live.now_ms(), Ordering::Relaxed);
     }
 }
 
@@ -852,7 +874,9 @@ pub fn start_live(enabled: bool, level: f32) {
             asked_at: AtomicU64::new(0),
             frames: AtomicU64::new(0),
             epoch: Instant::now(),
-            unit: Mutex::new(Unit { au: std::ptr::null_mut(), running: false }),
+            unit: Mutex::new(Unit { au: std::ptr::null_mut() }),
+            running: AtomicBool::new(false),
+            control: OnceLock::new(),
         }));
         let level = MASTER * level;
         let synth = Synth { level: Follow { target: level, value: level }, ..Synth::default() };
@@ -884,10 +908,8 @@ pub fn start_live(enabled: bool, level: f32) {
         };
         live.unit.lock().unwrap_or_else(|e| e.into_inner()).au = au;
         if BACKEND.set(Backend::Live(live)).is_err() { return; }
-        std::thread::Builder::new().name("pointer-audio-idle".into()).spawn(move || loop {
-            std::thread::sleep(Duration::from_millis(500));
-            live.stop_if_quiet();
-        }).expect("audio idle thread");
+        let control = std::thread::Builder::new().name("pointer-audio".into()).spawn(move || live.control()).expect("audio control thread");
+        let _ = live.control.set(control.thread().clone());
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (enabled, level);
@@ -916,6 +938,11 @@ pub fn play(t: f64, sfx: Sfx) {
         Some(Backend::Record(log)) => log.lock().unwrap_or_else(|e| e.into_inner()).push((t, Cmd::Play(sfx))),
         None => {}
     }
+}
+
+/// The pointer is moving: get the output running, so a click that follows sounds at once.
+pub fn prepare() {
+    if let Some(Backend::Live(live)) = BACKEND.get() && live.enabled.load(Ordering::Relaxed) { live.wake(); }
 }
 
 /// Sets a continuous sound's level, 0 to 1.

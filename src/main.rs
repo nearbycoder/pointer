@@ -21,6 +21,7 @@ mod login;
 mod math;
 mod menubar;
 mod panel;
+mod panels;
 mod pointer;
 mod promo;
 mod settings;
@@ -170,6 +171,8 @@ fn run_live() {
                 // Above pop-up menus (101): with the system cursor hidden, the glove is the
                 // only pointer you see, so a context menu mustn't cover it.
                 .macos_level(102)
+                // The app hiding (⌘H in Settings, Hide Others elsewhere) leaves the glove up.
+                .on_created(|created| if let Some(n) = created.window_number { panels::keep_on_screen(n) })
                 .poll(stage::poll)
                 .setup(setup_live)
                 .compositor(gpu::Gfx::new());

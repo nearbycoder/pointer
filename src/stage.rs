@@ -337,9 +337,14 @@ impl Stage {
         let (w, h) = self.size;
         let sample = self.sample();
         let on = sample.filter(|(p, _)| p.x >= 0.0 && p.y >= 0.0 && p.x < w && p.y < h);
+        if matches!(self.source, Source::Live) && on.is_some() && sample.map(|s| s.1) != self.last_sample.map(|s| s.1) {
+            input::cursor_click();
+        }
         if sample != self.last_sample {
             self.last_sample = sample;
             self.moved_t = t;
+            // Moving the pointer gets the audio output ready for a click.
+            if matches!(self.source, Source::Live) && on.is_some() && self.st.sound && self.st.shown { audio::prepare(); }
         }
         let was_on = self.cursor.is_some();
         self.cursor = on.map(|(p, _)| p);
@@ -572,10 +577,17 @@ pub fn watch(w: Watch) {
         std::thread::Builder::new().name("pointer-sampler".into()).spawn(|| {
             let mut last: Option<input::Sample> = None;
             let mut was_inside: Vec<bool> = Vec::new();
+            let mut checked = std::time::Instant::now();
             loop {
                 std::thread::sleep(Duration::from_millis(4));
                 let Some(s) = input::sample() else { continue };
-                if last == Some(s) { continue; }
+                // A few times a second: if something showed the system cursor while the glove
+                // stands in for it, wake the overlay with the cursor, which hides it again.
+                let escaped = checked.elapsed() >= Duration::from_millis(100) && {
+                    checked = std::time::Instant::now();
+                    input::cursor_escaped()
+                };
+                if last == Some(s) && !escaped { continue; }
                 last = Some(s);
                 let watches = WATCHES.lock().unwrap_or_else(|e| e.into_inner());
                 was_inside.resize(watches.len(), false);
@@ -583,9 +595,11 @@ pub fn watch(w: Watch) {
                     let (x, y) = (s.x - w.origin.0, s.y - w.origin.1);
                     let inside = x >= 0.0 && y >= 0.0 && x < w.size.0 as f64 && y < w.size.1 as f64;
                     // Moving or clicking on a display wakes it; so does leaving it, so its
-                    // pointer can slide away.
+                    // pointer can slide away. The one with the cursor also wakes to hide the
+                    // system cursor again.
                     let crossed = inside != std::mem::replace(before, inside);
-                    if (inside || crossed) && w.resting.swap(false, Ordering::Relaxed) { (w.waker)(); }
+                    let woke = (inside || crossed) && w.resting.swap(false, Ordering::Relaxed);
+                    if woke || (inside && escaped) { (w.waker)(); }
                 }
             }
         }).expect("sampler thread");
