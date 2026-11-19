@@ -102,6 +102,24 @@ impl Rig {
         v2(aim.x + (base.x - aim.x) * 0.35, h + 0.45 * s)
     }
 
+    /// Starts out of the screen and at rest on `input`'s cursor, for a shot that opens
+    /// mid-scene. Only before the first step; true when it did.
+    pub fn start_out(&mut self, input: &RigInput) -> bool {
+        let Some(aim) = input.cursor.filter(|_| self.fresh && input.shown) else { return false };
+        let s = input.size;
+        self.size = Spring::at(s);
+        self.ext = Spring::at(1.0);
+        self.ext_target = 1.0;
+        self.aim = aim;
+        self.tip = aim;
+        self.prev_tip = aim;
+        self.base = Spring2::at(input.base.unwrap_or_else(|| self.base_target(aim, input.w, input.h, s)));
+        self.mid = Spring2::at((self.base.x + aim) * 0.5);
+        self.vel = V2::ZERO;
+        self.fresh = false;
+        true
+    }
+
     /// Snaps every spring to where it would rest for `aim`.
     fn snap(&mut self, input: &RigInput, aim: V2) {
         let s = input.size;

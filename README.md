@@ -2,7 +2,7 @@
 
 # Pointer
 
-**[Download for Mac](https://github.com/nearbycoder/pointer/releases/latest/download/Pointer.dmg)** · [Website](https://nearbycoder.github.io/pointer/) · [Releases](https://github.com/nearbycoder/pointer/releases)
+**[Download for Mac](https://github.com/nearbycoder/pointer/releases/latest/download/Pointer.dmg)** · [Website](https://nearbycoder.github.io/pointer/) · [Watch the one-minute film](https://nearbycoder.github.io/pointer/media/launch.mp4) · [Releases](https://github.com/nearbycoder/pointer/releases)
 
 A giant cartoon glove on a telescoping pole that follows your cursor across your screens, with tools for showing people where to look. Click and the screen ripples with a pop. Tap fast or hold and the glass cracks with a crash and tinkling shards. There's also a spotlight, a laser trail, a pen and a focus box, each with its own sound.
 
@@ -185,7 +185,9 @@ gh release create v1.0.1 dist/Pointer.dmg dist/Pointer.zip --title "Pointer 1.0.
 
 Installed copies pick it up within six hours, and the website's download buttons point at `releases/latest`, so they need no change.
 
-The artwork is rendered by the app itself: `scripts/art.sh` makes the icon (and `AppIcon.icns`) and the settings window's pointer thumbnails, and `scripts/site-media.sh` makes the website's film, clips, screenshots and social card. The website is `docs/`, served by GitHub Pages.
+The artwork is rendered by the app itself: `scripts/art.sh` makes the icon (and `AppIcon.icns`) and the settings window's pointer thumbnails, and `scripts/site-media.sh` makes the website's clips, screenshots and social card. The website is `docs/`, served by GitHub Pages.
+
+The launch film is the app too. `src/promo.rs` scripts its shots (a lost cursor, the reveal, the tools, the pointers, the tech cards, the call to action), each performed headlessly on the 1920×1080 stage, and the settings window is filmed recording real shortcuts. `scripts/promo.sh` renders them, cuts them together, and lays the voiceover (`assets/promo/voiceover.mp3`, ElevenLabs v4) on top phrase by phrase from `assets/promo/voiceover.cues`, with the app's own sound effects at 20% beneath it. It writes `out/promo/pointer-launch.mp4` for uploading and the site's lighter `docs/media/launch.mp4`.
 
 ## How it's put together
 

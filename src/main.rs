@@ -22,6 +22,7 @@ mod math;
 mod menubar;
 mod panel;
 mod pointer;
+mod promo;
 mod settings;
 mod sim;
 mod stage;
@@ -261,6 +262,23 @@ fn art(s: &mut Stage, style: style::Style, scale: f32, base: math::V2) {
 /// The app icon, on a 1024×1024 canvas.
 const ICON_TIP: math::V2 = v2(372.0, 344.0);
 
+/// A shot of the launch film (`scripts/promo.sh`), on the 1920×1080 stage.
+fn promo_scene(s: &mut Stage, shot: promo::Shot) {
+    use promo::Shot;
+    s.source = Source::Promo(shot);
+    s.backdrop = match shot {
+        Shot::Hook | Shot::Tap | Shot::Tools => Backdrop::Light,
+        Shot::Pointers => Backdrop::Dark,
+        Shot::Reveal | Shot::Tech | Shot::Cta | Shot::Wall => Backdrop::None,
+    };
+    s.start_out = shot.starts_out();
+    let c = promo::cue(shot, 0.0);
+    s.shared().update(|st| {
+        (st.scale, st.tool, st.style, st.shown, st.blade) = (shot.scale(), c.tool, c.style, c.shown, promo::BLADE);
+        st.help = false;
+    });
+}
+
 /// The social card, on a 1200×630 canvas.
 const CARD_TIP: math::V2 = v2(905.0, 236.0);
 
@@ -328,6 +346,14 @@ const SCENES: &[Scene] = &[
         s.backdrop = Backdrop::Icon(ICON_TIP);
         art(s, style::Style::Glove, 3.4, v2(1130.0, 1220.0));
     }),
+    ("promo-hook", |s| promo_scene(s, promo::Shot::Hook)),
+    ("promo-reveal", |s| promo_scene(s, promo::Shot::Reveal)),
+    ("promo-tap", |s| promo_scene(s, promo::Shot::Tap)),
+    ("promo-tools", |s| promo_scene(s, promo::Shot::Tools)),
+    ("promo-pointers", |s| promo_scene(s, promo::Shot::Pointers)),
+    ("promo-tech", |s| promo_scene(s, promo::Shot::Tech)),
+    ("promo-cta", |s| promo_scene(s, promo::Shot::Cta)),
+    ("promo-wall", |s| promo_scene(s, promo::Shot::Wall)),
     ("art-card", |s| {
         s.source = Source::Path(|_| (CARD_TIP, false));
         s.backdrop = Backdrop::Card(CARD_TIP);
@@ -367,6 +393,11 @@ fn run_headless() {
 }
 
 fn main() {
+    // `pointer --promo-shots`: the launch film's shots and their lengths, for scripts/promo.sh.
+    if std::env::args().nth(1).as_deref() == Some("--promo-shots") {
+        for (name, shot) in promo::SHOTS { println!("{name} {}", shot.length()); }
+        return;
+    }
     // `Pointer --update` (from Contents/MacOS): update from the terminal, as Settings would.
     if std::env::args().nth(1).as_deref() == Some("--update") {
         std::process::exit(update::run_cli());

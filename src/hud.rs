@@ -8,23 +8,23 @@ use rune::{Color, Cx, El, TextStyle, Transition, col, effect, el, row, text};
 use crate::math::v2;
 use crate::bindings::{self, ACTIONS};
 use crate::settings::Tool;
-use crate::stage::{Backdrop, MARK_OVER, MARK_UNDER, Stage};
+use crate::stage::{Backdrop, MARK_OVER, MARK_UNDER, Source, Stage};
 
 /// Rune's colours are linear light; these are written the way designers write them, in sRGB.
-fn srgb(r: f32, g: f32, b: f32, a: f32) -> Color {
+pub(crate) fn srgb(r: f32, g: f32, b: f32, a: f32) -> Color {
     use rune::color::srgb_decode;
     Color { r: srgb_decode(r), g: srgb_decode(g), b: srgb_decode(b), a }
 }
 
-fn card() -> Color {
+pub(crate) fn card() -> Color {
     srgb(0.075, 0.075, 0.09, 0.93)
 }
 
-fn white(a: f32) -> Color {
+pub(crate) fn white(a: f32) -> Color {
     Color { r: 1.0, g: 1.0, b: 1.0, a }
 }
 
-fn tool_color(tool: Tool) -> Color {
+pub(crate) fn tool_color(tool: Tool) -> Color {
     match tool {
         Tool::Tap => srgb(0.62, 0.85, 0.3, 1.0),
         Tool::Spotlight => srgb(1.0, 0.82, 0.3, 1.0),
@@ -34,13 +34,13 @@ fn tool_color(tool: Tool) -> Color {
     }
 }
 
-fn keycap(keys: &str, k: f32) -> El {
+pub(crate) fn keycap(keys: &str, k: f32) -> El {
     el().px(8.0 * k).py(3.0 * k).radius(7.0 * k).fill(white(0.09)).border(1.0, white(0.16))
         .child(text(keys).font(TextStyle::new(13.0 * k, 600.0)).color(white(0.9)))
 }
 
 /// A column covering the whole display.
-fn full() -> El {
+pub(crate) fn full() -> El {
     col().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
 }
 
@@ -53,9 +53,12 @@ pub fn view(s: &Stage, _: &mut Cx<Stage>) -> El {
         Backdrop::Card(at) => root = root.child(icon_field(at)).child(card_words()),
         other => root = root.child(backdrop(other)),
     }
+    let promo = match s.source { Source::Promo(shot) => Some(shot), _ => None };
+    if let Some(shot) = promo && let Some(back) = crate::promo::backdrop(shot, s.time() as f32) { root = root.child(back); }
     root = root.child(effect(MARK_UNDER).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)));
+    if let Some(shot) = promo { root = root.child(crate::promo::overlay(shot, s.time() as f32)); }
 
-    if let Some((toast, _)) = &s.toast {
+    if let Some((toast, _)) = s.toast.as_ref().filter(|_| promo.is_none()) {
         let accent = match toast.accent {
             Some([r, g, b]) => srgb(r, g, b, 1.0),
             None if toast.title == "Hidden" => white(0.5),

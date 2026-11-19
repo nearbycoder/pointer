@@ -1,7 +1,7 @@
 #!/bin/sh
 # Renders the website's media with the app itself (headless, so every frame is deterministic):
-# the promo film with its sound, a silent loop per feature, the settings window's pages and
-# the social preview. Everything lands in docs/media.
+# a silent loop per feature, the settings window's pages and the social preview. Everything
+# lands in docs/media. (The launch film in the hero is scripts/promo.sh's.)
 #   scripts/site-media.sh
 set -eu
 cd "$(dirname "$0")/.."
@@ -19,13 +19,6 @@ render() { # scene seconds name: rendered at 2x, so the cropped close-ups stay s
 }
 render demo 17 demo
 render styles 17 styles
-
-# The promo: the tools tour, then every pointer, with a short cross-fade.
-ffmpeg -v error -y -i "$work/demo.mp4" -i "$work/demo.wav" -i "$work/styles.mp4" -i "$work/styles.wav" \
-    -filter_complex "[0:v]scale=1920:1080:flags=lanczos,format=yuv420p,setsar=1[a];[2:v]scale=1920:1080:flags=lanczos,format=yuv420p,setsar=1[b];[a][b]xfade=transition=fade:duration=0.5:offset=16.5[v];[1:a][3:a]acrossfade=d=0.5[s]" \
-    -map "[v]" -map "[s]" -c:v libx264 -preset slow -crf 21 -profile:v high -pix_fmt yuv420p -r 60 \
-    -c:a aac -b:a 160k -movflags +faststart "$media/promo.mp4"
-ffmpeg -v error -y -ss 0.9 -i "$media/promo.mp4" -frames:v 1 -q:v 3 "$media/promo-poster.jpg"
 
 # A silent close-up loop: source, start, seconds, name, the centre and width of the region to
 # show (in points of the 1920×1080 page), and when in the clip to take its poster frame.

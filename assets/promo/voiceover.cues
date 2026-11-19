@@ -1,0 +1,19 @@
+# The launch film's voiceover (ElevenLabs v4, "Adam"), cut into phrases and laid on the
+# film: each phrase plays from FROM to TO seconds of voiceover.mp3, starting AT seconds into
+# its SHOT. Cuts sit in the pauses between phrases. Read by scripts/promo.sh.
+# shot      at      from     to       words
+hook        0.30    0.000    6.810    You're sharing your screen. You say... "see that button?" And everyone's still hunting for your cursor.
+reveal      0.60    7.159   10.420    Meet Pointer... a GIANT pointer for your screen.
+tap         1.00   10.583   14.281    Tap to make a point... or keep tapping, and crack the glass.
+tools       0.15   14.407   16.083    Spotlight what matters.
+tools       3.20   16.181   18.010    Trace your story with a laser.
+tools       6.30   18.159   19.900    Circle the bit they keep missing...
+tools       9.05   19.979   23.166    or box it in, and let everything else fade away.
+pointers    0.40   23.349   24.853    And it's not just a glove.
+pointers    3.00   24.927   26.180    There's a laser sword...
+pointers    5.40   26.195   27.314    a magic wand...
+pointers    7.70   27.357   28.927    a mallet, for emphasis...
+pointers    9.75   28.978   31.013    and yes... a rubber chicken.
+settings    0.40   31.260   35.943    Every hotkey is yours to change. And it updates itself, straight from GitHub.
+tech        0.30   36.072   43.175    Under the hood? Native Rust, drawn at a hundred and twenty frames a second. No permissions. No account. Open source.
+cta         0.40   43.348   46.602    Pointer. Free for your Mac. Go point at something.

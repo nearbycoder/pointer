@@ -40,6 +40,8 @@ pub enum Source {
     Demo,
     /// The scripted showcase of every pointer in `demo.rs`.
     Styles,
+    /// A shot of the launch film in `promo.rs`.
+    Promo(crate::promo::Shot),
 }
 
 /// What's behind a headless render, so a still shows the pointer in context.
@@ -118,6 +120,8 @@ pub struct Stage {
     hum: f32,
     /// Holds the rig's hand still here (framed artwork: the icon and thumbnails).
     pub fixed_base: Option<V2>,
+    /// Opens with the pointer already out and at rest (a film shot that starts mid-scene).
+    pub start_out: bool,
 }
 
 impl Stage {
@@ -166,6 +170,7 @@ impl Stage {
             flash: 0.0,
             hum: 1.0,
             fixed_base: None,
+            start_out: false,
         }
     }
 
@@ -185,6 +190,11 @@ impl Stage {
     pub fn glove_size(&self) -> f32 {
         (self.size.1 * 0.11).clamp(70.0, 420.0) * self.st.scale
     }
+    /// Seconds since this stage started (virtual time when headless).
+    pub fn time(&self) -> f64 {
+        self.t
+    }
+
     /// A HUD scale that keeps text a sensible size on big low-density displays.
     pub fn hud_scale(&self) -> f32 {
         (self.size.1 / 1100.0).clamp(1.0, 2.2)
@@ -197,6 +207,7 @@ impl Stage {
             Source::Path(f) => Some(f(self.t)),
             Source::Demo => { let (p, down, _) = crate::demo::script(self.t); Some((p, down)) }
             Source::Styles => { let (p, down, _) = crate::demo::styles(self.t); Some((p, down)) }
+            Source::Promo(shot) => { let c = crate::promo::cue(shot, self.t); Some((c.at, c.down)) }
         }
     }
 
@@ -310,6 +321,19 @@ impl Stage {
             let (_, _, style) = crate::demo::styles(t);
             if style != self.st.style { crate::actions::set_style_on(&self.shared, style); }
         }
+        if let Source::Promo(shot) = self.source {
+            // The film switches tools and pointers quietly (it has its own titles), and its
+            // titles and cards change with time, so the view runs every frame.
+            let cue = crate::promo::cue(shot, t);
+            let now = self.shared.get();
+            if (cue.tool, cue.style, cue.shown) != (now.tool, now.style, now.shown) {
+                self.shared.update(|s| {
+                    if cue.style == Style::Saber && s.style != Style::Saber { s.blade = crate::promo::BLADE; }
+                    (s.tool, s.style, s.shown) = (cue.tool, cue.style, cue.shown);
+                });
+            }
+            changed = true;
+        }
         let (w, h) = self.size;
         let sample = self.sample();
         let on = sample.filter(|(p, _)| p.x >= 0.0 && p.y >= 0.0 && p.x < w && p.y < h);
@@ -389,7 +413,9 @@ impl Stage {
         }
         if self.btn && !pressed { self.release(); }
 
-        self.rig.step(dt, &RigInput { w, h, cursor: self.cursor, pressed: self.btn, shown: self.st.shown && !swapping, size, base: self.fixed_base });
+        let input = RigInput { w, h, cursor: self.cursor, pressed: self.btn, shown: self.st.shown && !swapping, size, base: self.fixed_base };
+        if self.start_out && self.rig.start_out(&input) { self.was_out = true; }
+        self.rig.step(dt, &input);
         let pose = self.rig.pose_with(self.shown_style.attach());
         self.flash *= (-dt * 7.0).exp();
         if self.shown_style == Style::Saber && pose.visible {
