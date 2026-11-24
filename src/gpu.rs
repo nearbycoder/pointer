@@ -190,6 +190,9 @@ impl Compositor<Stage> for Gfx {
 
         let clear = f.rt.clear_color();
         let frame_px = f.size;
+        // As Rune's own frame does before drawing the HUD (`Frame::draw_ui`).
+        let fade_stops = f.fade_stops();
+        f.ui.set_fade_stops(fade_stops);
         f.ui.prepare(f.device, f.queue, &mut f.rt.text.atlas, &f.rt.instances, f.size);
         let p = self.pipes.as_ref().expect("made above");
         let scene = &self.scene;
@@ -214,5 +217,11 @@ impl Compositor<Stage> for Gfx {
 
     fn animating(&self) -> bool {
         self.animating
+    }
+
+    /// Rune dropped its GPU device (lost, or swapped for another adapter): let go of the
+    /// pipelines and buffers made on it, so `render` makes them again on the next one.
+    fn release_gpu(&mut self) {
+        self.pipes = None;
     }
 }

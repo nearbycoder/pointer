@@ -11,7 +11,7 @@ mod mac {
     unsafe extern "C" {}
 
     fn service() -> Option<*mut AnyObject> {
-        let class = AnyClass::get("SMAppService")?;
+        let class = AnyClass::get(c"SMAppService")?;
         // SAFETY: `mainAppService` is a class property returning an autoreleased object.
         let service: *mut AnyObject = unsafe { msg_send![class, mainAppService] };
         (!service.is_null()).then_some(service)

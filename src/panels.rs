@@ -17,7 +17,7 @@ mod mac {
     use objc2::runtime::{AnyClass, AnyObject};
 
     pub fn keep_on_screen(number: u32) {
-        let Some(class) = AnyClass::get("NSApplication") else { return };
+        let Some(class) = AnyClass::get(c"NSApplication") else { return };
         // SAFETY: AppKit calls on the main thread (`on_created` runs there); the window is one
         // of the app's own, found by its number, and only read and set here.
         unsafe {

@@ -44,28 +44,25 @@ fn picked(tag: isize) {
 mod mac {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use objc2::rc::Retained;
+    use objc2::rc::{Allocated, Retained};
     use objc2::runtime::{AnyObject, NSObject};
-    use objc2::{ClassType, DeclaredClass, class, declare_class, msg_send, msg_send_id, mutability, sel};
+    use objc2::{AnyThread, class, define_class, msg_send, sel};
     use objc2_foundation::NSString;
 
     use super::Pick;
 
-    declare_class!(
+    define_class!(
+        // SAFETY: NSObject has no subclassing requirements, and the class holds no state and
+        // adds no `Drop`.
+        #[unsafe(super(NSObject))]
+        #[name = "PointerMenuTarget"]
         struct MenuTarget;
 
-        // SAFETY: NSObject has no subclassing requirements; the class holds no state.
-        unsafe impl ClassType for MenuTarget {
-            type Super = NSObject;
-            type Mutability = mutability::InteriorMutable;
-            const NAME: &'static str = "PointerMenuTarget";
-        }
-
-        impl DeclaredClass for MenuTarget {}
-
-        unsafe impl MenuTarget {
-            #[method(pick:)]
+        impl MenuTarget {
+            // SAFETY: AppKit sends an action `pick:` with the menu item that was chosen.
+            #[unsafe(method(pick:))]
             fn pick(&self, sender: *mut AnyObject) {
+                if sender.is_null() { return; }
                 // SAFETY: the sender is the NSMenuItem that was chosen.
                 let tag: isize = unsafe { msg_send![sender, tag] };
                 super::picked(tag);
@@ -85,11 +82,13 @@ mod mac {
         // SAFETY: AppKit calls on the main thread (an `AppHandle::update`); every object
         // made here is kept for the life of the process.
         unsafe {
-            let target: Retained<MenuTarget> = msg_send_id![MenuTarget::alloc(), init];
+            let target: Retained<MenuTarget> = msg_send![MenuTarget::alloc(), init];
             let target: &'static MenuTarget = Box::leak(Box::new(target));
             let bar: *mut AnyObject = msg_send![class!(NSStatusBar), systemStatusBar];
-            let item: *mut AnyObject = msg_send![bar, statusItemWithLength: -1.0f64];
-            let _: *mut AnyObject = msg_send![item, retain];
+            if bar.is_null() { return; }
+            let Some(item): Option<Retained<AnyObject>> = msg_send![bar, statusItemWithLength: -1.0f64] else { return };
+            // The status bar holds its items weakly: keep this one for good.
+            let item: *mut AnyObject = Retained::into_raw(item);
             let button: *mut AnyObject = msg_send![item, button];
             let image: *mut AnyObject = msg_send![class!(NSImage), imageWithSystemSymbolName: &*ns("hand.point.up.left.fill"), accessibilityDescription: &*ns("Pointer")];
             if !image.is_null() && !button.is_null() {
@@ -98,19 +97,21 @@ mod mac {
             } else if !button.is_null() {
                 let _: () = msg_send![button, setTitle: &*ns("☝︎")];
             }
-            let menu: *mut AnyObject = msg_send![class!(NSMenu), new];
+            let menu: Retained<AnyObject> = msg_send![class!(NSMenu), new];
+            // The menu holds each item it's given, so a pointer to one stays good as long as the
+            // menu, which the status item keeps for the life of the process.
             let add = |title: &str, pick: Option<Pick>, key: &str| -> *mut AnyObject {
                 if pick.is_none() {
                     let sep: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
-                    let _: () = msg_send![menu, addItem: sep];
+                    let _: () = msg_send![&*menu, addItem: sep];
                     return sep;
                 }
-                let raw: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
-                let entry: *mut AnyObject = msg_send![raw, initWithTitle: &*ns(title), action: sel!(pick:), keyEquivalent: &*ns(key)];
-                let _: () = msg_send![entry, setTarget: &**target];
-                let _: () = msg_send![entry, setTag: pick.map_or(0, |p| p as isize)];
-                let _: () = msg_send![menu, addItem: entry];
-                entry
+                let raw: Allocated<AnyObject> = msg_send![class!(NSMenuItem), alloc];
+                let entry: Retained<AnyObject> = msg_send![raw, initWithTitle: &*ns(title), action: sel!(pick:), keyEquivalent: &*ns(key)];
+                let _: () = msg_send![&*entry, setTarget: target];
+                let _: () = msg_send![&*entry, setTag: pick.map_or(0, |p| p as isize)];
+                let _: () = msg_send![&*menu, addItem: &*entry];
+                Retained::as_ptr(&entry).cast_mut()
             };
             add("Show or Hide Pointer", Some(Pick::Toggle), "");
             add("Next Pointer", Some(Pick::NextStyle), "");
@@ -126,7 +127,7 @@ mod mac {
             UPDATE_ITEM.store(update as usize, Ordering::Relaxed);
             add("", None, "");
             add("Quit Pointer", Some(Pick::Quit), "q");
-            let _: () = msg_send![item, setMenu: menu];
+            let _: () = msg_send![item, setMenu: &*menu];
         }
     }
 

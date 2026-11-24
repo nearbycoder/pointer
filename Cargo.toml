@@ -1,6 +1,6 @@
 [package]
 name = "pointer"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 license = "MIT"
 description = "A giant presentation pointer for your screen, built on Rune."
@@ -8,30 +8,32 @@ default-run = "pointer"
 
 [dependencies]
 # Rune is pre-release: pin a `dev` revision, and use the same revision in every patch below.
-rune = { git = "https://github.com/anomalyco/rune", rev = "f54cbcfa84d995d339c243a579218f5062c940b5", features = ["keys-overlay"] }
+rune = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a", features = ["keys-overlay"] }
 # The same wgpu Rune builds with, for the compositor's own pipeline.
 wgpu = { version = "~30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 bytemuck = { version = "1.25", features = ["derive"] }
 # The settings window's shortcut recorder (and Rune's other components).
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "f54cbcfa84d995d339c243a579218f5062c940b5", default-features = false }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a", default-features = false }
 # Reading GitHub's release feed for updates.
 serde_json = "1"
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 wgpu = { version = "~30.0.1", default-features = false, features = ["metal"] }
 # The menu bar item and open-at-login: the same Objective-C bridge Rune uses.
-objc2 = "0.5.2"
-objc2-foundation = { version = "0.2.2", features = ["NSString", "NSObject", "NSError"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
 
 # Cargo doesn't inherit a dependency's patches: Rune's README asks apps to patch these crates
 # at the same revision as Rune itself.
 [patch.crates-io]
-winit = { git = "https://github.com/anomalyco/rune", rev = "f54cbcfa84d995d339c243a579218f5062c940b5" }
-sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "f54cbcfa84d995d339c243a579218f5062c940b5" }
-parley_engine = { git = "https://github.com/anomalyco/rune", rev = "f54cbcfa84d995d339c243a579218f5062c940b5" }
-wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "f54cbcfa84d995d339c243a579218f5062c940b5" }
-accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "f54cbcfa84d995d339c243a579218f5062c940b5" }
-accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "f54cbcfa84d995d339c243a579218f5062c940b5" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a" }
+sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a" }
+naga = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a" }
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a" }
+accesskit_atspi_common = { git = "https://github.com/anomalyco/rune", rev = "a82183884c9b86186c97ffcc5aa587632592b84a" }
 
 [profile.release]
 opt-level = 3
